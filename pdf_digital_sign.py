@@ -96,8 +96,9 @@ def test(Digi_sign):
             # Find the row with the text "Preparer’s Company Chop/Stamp" in column A
             for row in sheet.iter_rows(min_col=1, max_col=1):
                 for cell in row:
-                    if "Preparer’s Company Chop/Stamp" in str(cell.value):
-                        status_label.config(text=f"Found text: Preparer’s Company Chop/Stamp")
+                    # if "Preparer’s Company Chop/Stamp" in str(cell.value):
+                    if "I hereby certify that all information provided is true and correct." in str(cell.value):
+                        status_label.config(text=f"Found text: I hereby certify that all information provided is true and correct.")
                         status_label.update()  # Update the GUI to reflect the changes
                         time.sleep(1)
                         print("Found text: Preparer’s Company Chop/Stamp")

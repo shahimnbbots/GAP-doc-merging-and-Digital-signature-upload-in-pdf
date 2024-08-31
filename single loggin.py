@@ -10,10 +10,7 @@ from selenium.webdriver.support import expected_conditions as ec
 from sheetfu import SpreadsheetApp, Table
 from google.oauth2 import service_account
 import gspread
-import sys
-import psutil
 
-# correct function #####################################################################################################
 def get_google_sheet_data():
     # Load credentials and authenticate
     scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
@@ -27,7 +24,6 @@ def get_google_sheet_data():
     print(sheet.get_all_records())
     # Fetch all records from the sheet
     return sheet.get_all_records()
-########################################################################################################################
 
 
 def update_google_sheet(transaction_no, error_message, status):
@@ -47,38 +43,12 @@ def update_google_sheet(transaction_no, error_message, status):
     sheet.update_cell(cell.row, sheet.find("Status").col, status)
 
 
-def kill_chrome_processes():
-    for proc in psutil.process_iter():
-        try:
-            if proc.name() == "chrome.exe" or proc.name() == "chromedriver.exe":
-                proc.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-
-
-def logistics(tracking_no, po_no, row, status_label):
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--window-size=1280,720")
-    options.add_argument("--disable-gpu")
-    # options.add_experimental_option("detach", True)
-
-    print("testing started")
-    driver = webdriver.Chrome(options=options)
+def logistics(driver, tracking_no, po_no, row, status_label):
     wait = WebDriverWait(driver, 30)
+
     try:
-        driver.get("https://lss.apllogistics.com/portal/#/home")
-        username = wait.until(ec.presence_of_element_located((By.NAME, "username")))
-        time.sleep(2)
-        driver.execute_script("handleChangeLogin();")
-        driver.execute_script("arguments[0].value = 'sandesh.samson@shahi.co.in';", username)
-        driver.execute_script("arguments[0].value = 'Booking@gap7';", driver.find_element(By.NAME, "password"))
-        driver.execute_script("arguments[0].click();", driver.find_element(By.NAME, "submit"))
-        time.sleep(5)
         wait.until(ec.presence_of_element_located((By.XPATH, '//*[@id="Documentation"]/a')))
-        status_label.config(text=f"Logged in")
-        status_label.update()  # Update the GUI to reflect the changes
+
         # Click on the appropriate links to navigate
         driver.execute_script("arguments[0].click();", driver.find_element(By.XPATH,
                                                                            '//*[@id="Documentation"]/div/span/div[2]/div/div/ul/li[2]/a'))
@@ -131,7 +101,8 @@ def logistics(tracking_no, po_no, row, status_label):
                         option = driver.find_element(By.XPATH,
                                                      f'//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[1]/div/lss-duallistbox/div/table/tbody/tr[3]/td[1]/select/optgroup/option[text()="{option_value}"]')
                         option.click()
-                        add = driver.find_element(By.XPATH, '//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[1]/div/lss-duallistbox/div/table/tbody/tr[3]/td[2]/div[3]/button')
+                        add = driver.find_element(By.XPATH,
+                                                  '//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[1]/div/lss-duallistbox/div/table/tbody/tr[3]/td[2]/div[3]/button')
                         add.click()
                         print(f"Clicked on option for condition {condition}: {option_value}")
                     except NoSuchElementException:
@@ -165,74 +136,61 @@ def logistics(tracking_no, po_no, row, status_label):
         status_label.config(text=f"Uploaded files")
         status_label.update()  # Update the GUI to reflect the changes
         save_btn = driver.find_element(By.XPATH,
-                                         '//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[6]/div/lss-dynamic-attr-button[1]/button')
+                                       '//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[6]/div/lss-dynamic-attr-button[1]/button')
         time.sleep(1)
         ActionChains(driver).move_to_element(save_btn).click().perform()
         time.sleep(3)
         status = "Uploaded"
         update_google_sheet(tracking_no, "", status)  # Pass an empty error message for successful uploads
-    finally:
-        driver.quit()
-        # Explicitly kill any remaining Chrome processes
-        kill_chrome_processes()
+    except Exception as e:
+        print(f"Error processing transaction {tracking_no}: {str(e)}")
+        error_message = str(e)
+        update_google_sheet(tracking_no, error_message, "Error")
 
 
-def test():
-    # Create the GUI windows
+def main():
+    # Create the GUI window
     root = tk.Tk()
     root.geometry("400x100")
     root.title("API Doc Upload")  # Set the title of the window
     status_label = tk.Label(root, text="Processing...", padx=30, pady=15)
-
     status_label.pack()
-    # Fetch tracking numbers from Google Sheet
-    sheet_data = get_google_sheet_data()
 
-    # Loop through each row in the Google Sheet data
-    for row in sheet_data:
-        po_no = str(row["Po No."])
-        tracking_no = str(row["Transaction No."])
-        conditions_met = all(row[key] == "✓" for key in ["CHECKLIST", "INV", "PL", "IC"])
-        status = row["Status"]
-        if conditions_met and status != "Uploaded":
-            try:
-                status_label.config(text=f"Processing Transaction number: {tracking_no}")
-                status_label.update()  # Update the GUI to reflect the changes
-                logistics(tracking_no, po_no, row, status_label)
-            except:
-                error_message = "Unable to login"
-                update_google_sheet(tracking_no, error_message, "")  # Pass the error message and status as "Error"
-                sys.exit()
-        elif not conditions_met:
-            error_message = "Conditions are not met."
-            update_google_sheet(tracking_no, error_message, "")  # Pass the error message and status as "Error"
-            print(f"Skipping logistics for transaction number {tracking_no} as conditions are not met.")
-    root.destroy()
+    # login
+    options = Options()
+    # options.add_argument("--headless")
+    # options.add_argument("--no-sandbox")
+    # options.add_argument("--window-size=1280,720")
+    # options.add_argument("--disable-gpu")
+    options.add_experimental_option("detach", True)
 
+    print("testing started")
+    driver = webdriver.Chrome(options=options)
+    wait = WebDriverWait(driver, 30)
+    driver.get("https://lss.apllogistics.com/portal/#/home")
+    username = wait.until(ec.presence_of_element_located((By.NAME, "username")))
+    time.sleep(2)
+    driver.execute_script("handleChangeLogin();")
+    driver.execute_script("arguments[0].value = 'sunil.gopal@shahi.co.in';", username)
+    driver.execute_script("arguments[0].value = 'Pwd_su12#';", driver.find_element(By.NAME, "password"))
+    driver.execute_script("arguments[0].click();", driver.find_element(By.NAME, "submit"))
 
-test()
+    # Get data from Google Sheet
+    records = get_google_sheet_data()
 
+    # Iterate through each record and process
+    for record in records:
+        tracking_no = record["Tracking No"]
+        po_no = record["Po No"]
+        logistics(driver, tracking_no, po_no, record, status_label)
 
+    # Close the driver once all transactions are processed
+    driver.quit()
 
-# # Attempt to click the file upload element multiple times to handle any delays or interruptions
-# browse = None
-# for _ in range(5):
-#     try:
-#         browse = driver.find_element(By.XPATH,
-#                                      '//*[@id="content"]/form/div/div/div/div/div[3]/div[2]/div/div/div/div[2]/div[3]/div/lss-dynamic-attr-file/div/div/input')
-#         driver.execute_script("arguments[0].click();", browse)
-#         print("Clicked")
-#         break
-#     except:
-#         print("Error: Failed to click on the file upload element. Retrying...")
-#         time.sleep(2)
-#
-# if browse is None:
-#     print("Error: Unable to click the file upload element")
-# else:
-#     print("Successfully clicked the file upload element")
+    # Notify user that all transactions are processed
+    status_label.config(text="All transactions processed.")
+    status_label.update()
 
-
-
-
+    # Keep the GUI window open
+    root.mainloop()
 

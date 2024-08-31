@@ -2,13 +2,11 @@ import os.path
 import shutil
 import time
 from tkinter import filedialog, messagebox
-
 import gspread
 import pandas as pd
 import os.path
 import PyPDF2
 import tkinter as tk
-
 from google.oauth2 import service_account
 from gspread.exceptions import APIError
 from sheetfu import SpreadsheetApp, Table
